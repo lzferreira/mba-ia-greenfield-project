@@ -37,6 +37,12 @@ describe('Database migrations (integration)', () => {
       ),
       dataSource.query(`DROP TABLE IF EXISTS "migrations" CASCADE`),
     ]);
+
+    // DROP TABLE does not remove enum types, and afterAll's runMigrations
+    // recreates them — without this drop the next Jest run fails on CREATE TYPE.
+    await dataSource.query(
+      `DROP TYPE IF EXISTS "public"."verification_tokens_type_enum" CASCADE`,
+    );
   });
 
   afterAll(async () => {
