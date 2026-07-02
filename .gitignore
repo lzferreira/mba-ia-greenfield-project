@@ -1,2 +1,5 @@
 .history/
 settings.local.json
+# Local planning/challenge files — not part of the deliverable repo
+ROTEIRO-FASE-03.md
+prompt-desafio.md

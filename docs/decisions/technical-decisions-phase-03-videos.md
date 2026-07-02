@@ -42,7 +42,8 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (BullMQ + Redis) — retry/backoff/concurrency semantics needed for heavy FFmpeg jobs come built-in, `@nestjs/bullmq@11` matches the installed NestJS 11, and Redis is one small Compose service; pg-boss's transactional enqueue is attractive but its manual NestJS wiring and polling model outweigh that for a video pipeline.
 
-**Decision:** **A (BullMQ + Redis)**
+**Decision:** A (BullMQ + Redis)
+**Libraries:** @nestjs/bullmq, bullmq
 
 ---
 
@@ -73,7 +74,12 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (presigned multipart) — it is the S3-native answer to both the 10GB limit and resumability, requires no additional service, and keeps the API as a thin control plane (pre-register draft → issue part URLs → complete → enqueue job).
 
-**Decision:** **A (Presigned multipart direct to storage)**
+**Decision:** A (Presigned multipart direct to storage)
+**Libraries:** @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
+
+**Revisions:**
+- 2026-07-02 — Abandoned-upload policy defined: explicit abort endpoint (AbortMultipartUpload) + bucket lifecycle rule expiring incomplete multipart uploads after 7 days; orphan drafts remain and the user may restart the upload or delete the video. Rationale: resolution of validation issue AMB-2 — storage-leak prevention.
+- 2026-07-02 — Upload policy parameters fixed: part size 100MB (10GB ⇒ 100 parts), presigned upload-part URLs expire in 1h, accepted content types `video/mp4`, `video/webm`, `video/x-matroska`, `video/quicktime`; the 10GB limit is enforced at initiate (declared size) and at complete (HeadObject size check). Rationale: resolution of validation issue AMB-3 — cross-component contract parameters.
 
 ---
 
@@ -104,7 +110,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (separate container, same codebase, dedicated entrypoint) — matches the C4 diagram, keeps single-source-of-truth for entities/config, and delivers real process isolation with one extra Compose service; use a dedicated Dockerfile stage adding FFmpeg only to the worker image if size matters.
 
-**Decision:** **A (Separate container, same codebase, dedicated entrypoint)**
+**Decision:** A (Separate container, same codebase, dedicated entrypoint)
 
 ---
 
@@ -135,7 +141,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (apt binaries + direct spawn) — the two commands this phase needs (probe JSON, single-frame capture) don't justify a wrapper, and the only popular wrapper is archived; a small typed utility around `spawn` keeps everything testable and dependency-free.
 
-**Decision:** **A (apt binaries + direct spawn)**
+**Decision:** A (apt binaries + direct spawn)
 
 ---
 
@@ -166,7 +172,8 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (nanoid v3, 11 chars, unique index + retry) — short non-enumerable ids match the "URL curta e única" attention point, and the CJS constraint of the installed toolchain rules the v3 line, not v5.
 
-**Decision:** **A (nanoid v3, 11 chars, unique index + retry)**
+**Decision:** A (nanoid v3, 11 chars, unique index + retry)
+**Libraries:** nanoid
 
 ---
 
@@ -197,7 +204,11 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (presigned GET + redirect) — consistent with the upload decision (storage handles bytes, API handles control), Range/206 comes free and battle-tested from MinIO, and the only real cost is a public-endpoint config that the multipart upload flow (TD-02) already requires.
 
-**Decision:** **A (Presigned GET + 302 redirect)**
+**Decision:** A (Presigned GET + 302 redirect)
+
+**Revisions:**
+- 2026-07-02 — Phase-03 access policy defined: `ready` videos stream/download publicly (routes marked public, anonymous access allowed — aligned with Fase 05's anonymous viewing); non-ready statuses (draft/uploading/processing/failed) return 404 to everyone except the authenticated owner. Fase 04 refines this with público/unlisted visibility. Rationale: resolution of validation issue AMB-1.
+- 2026-07-02 — Streaming/download presigned GET URLs expire in 1h. Rationale: resolution of validation issue AMB-3 (parameter set shared with TD-02).
 
 ---
 
@@ -228,7 +239,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (enum + queue-managed retries + terminal failed state with reason) — matches the graded lifecycle exactly, leans on BullMQ's native retry/backoff instead of hand-rolled logic, and keeps the schema lean; an event log (Option B) can be added in a future phase if operational need appears.
 
-**Decision:** **A (enum + queue-managed retries + terminal failed state)**
+**Decision:** A (enum + queue-managed retries + terminal failed state)
 
 ---
 
@@ -259,7 +270,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (single private bucket, prefixed keys) — smallest configuration surface for Compose/tests, fully consistent with the presigned-only access model, and nothing in Phase 03 needs public objects or per-type policies.
 
-**Decision:** **A (single private bucket, prefixed keys)**
+**Decision:** A (single private bucket, prefixed keys)
 
 ---
 
