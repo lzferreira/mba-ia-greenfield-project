@@ -5,10 +5,11 @@ import {
   cleanAllTables,
   createTestDataSource,
 } from '../../test/create-test-data-source';
+import { Video } from '../../videos/entities/video.entity';
 import { User } from '../../users/entities/user.entity';
 import { Channel } from './channel.entity';
 
-const ALL_ENTITIES = [User, Channel, RefreshToken, VerificationToken];
+const ALL_ENTITIES = [User, Channel, Video, RefreshToken, VerificationToken];
 
 describe('Channel entity (integration)', () => {
   let dataSource: DataSource;

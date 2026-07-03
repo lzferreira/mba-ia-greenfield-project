@@ -6,6 +6,7 @@ import { VerificationToken } from '../auth/entities/verification-token.entity';
 import { CreateUsersAndChannels1775687773260 } from './migrations/1775687773260-CreateUsersAndChannels';
 import { CreateAuthTokens1777579850478 } from './migrations/1777579850478-CreateAuthTokens';
 import { createTestDataSource } from '../test/create-test-data-source';
+import { Video } from '../videos/entities/video.entity';
 
 const MANAGED_TABLES = [
   'users',
@@ -19,7 +20,7 @@ describe('Database migrations (integration)', () => {
 
   beforeAll(async () => {
     dataSource = createTestDataSource(
-      [User, Channel, RefreshToken, VerificationToken],
+      [User, Channel, Video, RefreshToken, VerificationToken],
       {
         synchronize: false,
         migrations: [
@@ -37,6 +38,12 @@ describe('Database migrations (integration)', () => {
       ),
       dataSource.query(`DROP TABLE IF EXISTS "migrations" CASCADE`),
     ]);
+
+    // DROP TABLE does not remove enum types, and afterAll's runMigrations
+    // recreates them — without this drop the next Jest run fails on CREATE TYPE.
+    await dataSource.query(
+      `DROP TYPE IF EXISTS "public"."verification_tokens_type_enum" CASCADE`,
+    );
   });
 
   afterAll(async () => {
