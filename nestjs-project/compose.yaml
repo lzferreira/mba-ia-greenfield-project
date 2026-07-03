@@ -1,6 +1,6 @@
 services:
   nestjs-api:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile.dev
     ports:
@@ -11,6 +11,27 @@ services:
       db:
         condition: service_healthy
       mailpit:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  # Video processing worker — same codebase, dedicated FFmpeg-enabled image (per phase-03-videos/TD-03).
+  # Runs the headless worker entrypoint (src/worker.ts) consuming the video-processing queue.
+  video-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: npm run start:worker:dev
+    volumes:
+      - .:/home/node/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
         condition: service_started
 
   db:
@@ -33,4 +54,37 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # Object storage (S3-compatible) — MinIO (per phase-03-videos/TD-08).
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
+  # Queue broker for BullMQ (per phase-03-videos/TD-01).
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  minio-data:
+  redis-data:
