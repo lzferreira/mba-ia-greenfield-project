@@ -149,6 +149,45 @@ NestJS with standard module structure. Source lives in `src/`, compiled output i
 - Each domain feature gets its own module (e.g., `UsersModule`, `VideosModule`) registered in `AppModule`
 - Controllers handle HTTP routing; Services hold business logic; both are scoped to their module
 
+## Videos Module (Phase 03)
+
+Asynchronous upload, processing, and delivery of videos (up to 10 GB). File bytes are **never** proxied through the API — they go directly to object storage via presigned S3 multipart URLs.
+
+### Layout
+
+- `src/videos/` — `VideosModule`: `videos.controller.ts`, `videos.service.ts`, `videos.repository.ts`, `public-id.service.ts` (11-char nanoid URL id with collision retry), `dto/` (`initiate-upload.dto.ts`, `complete-upload.dto.ts`), `entities/video.entity.ts`, `exceptions/video.exceptions.ts`, `videos.constants.ts` (`video-processing` queue, `process-video` job, allowed MIME types).
+- `src/videos/video.processor.ts` + `src/videos/ffmpeg.util.ts` — BullMQ `@Processor` and the `ffprobe`/`ffmpeg` wrapper (over `spawn`).
+- `src/storage/` — `StorageService` (AWS SDK v3 S3 client + `s3-request-presigner`): create/complete/abort multipart, presigned PUT/GET, object deletion. Bucket is private; keys are namespaced per video (`videos/<id>/original`, `videos/<id>/thumbnail.jpg`).
+- `src/worker.ts` + `src/worker.module.ts` — dedicated **worker entrypoint** (`nest start --entryFile worker`), run as the separate `video-worker` container. Only it registers the processor; the API process does not consume the queue.
+
+### Endpoints (`videos.controller.ts`)
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/videos` | JWT | Pre-register draft, return presigned multipart URLs (`partSize`, `parts[]`) |
+| `POST` | `/videos/:id/complete` | JWT (owner) | Finalize multipart, enforce 10 GiB cap, → `processing`, enqueue `process-video` |
+| `POST` | `/videos/:id/abort` | JWT (owner) | Abort in-progress multipart, keep draft |
+| `DELETE` | `/videos/:id` | JWT (owner) | Abort multipart + delete storage objects + DB row |
+| `GET` | `/videos/:publicId` | Public* | Metadata + `thumbnailUrl` |
+| `GET` | `/videos/:publicId/stream` | Public* | 302 → presigned GET; MinIO serves Range/206 |
+| `GET` | `/videos/:publicId/download` | Public* | 302 → presigned GET with attachment disposition |
+
+\* Public read routes use `OptionalJwtAuthGuard`: `ready` videos are visible to anyone; non-`ready` videos only to the authenticated **owner** (404 otherwise).
+
+### Queue / worker
+
+- Queue `video-processing` (BullMQ) on Redis; job `process-video` carries `{ videoId }`. Registered via `@nestjs/bullmq`; Redis host is the `redis` Compose service.
+- On success the worker sets `status=ready` with `duration_seconds`, `metadata` (jsonb), and `thumbnail_key`; it is **idempotent**. On exhausted retries, `@OnWorkerEvent('failed')` sets `status=failed` + `failure_reason`.
+- Status cycle: `draft → processing → ready | failed` (the `uploading` enum value is reserved and accepted as a complete/abort precondition alongside `draft`, but the current flow transitions a draft straight to `processing` on complete).
+
+### Persistence
+
+`videos` table (migration `…-CreateVideos.ts`, enum `videos_status_enum`) is owned by a channel: `channel_id` FK → `channels(id)` `ON DELETE CASCADE`, unique `public_id`, `storage_key` / `thumbnail_key`, `content_type`, `size_bytes`, `duration_seconds`, `metadata`, `upload_id`, `failure_reason`.
+
+### Infra
+
+`compose.yaml` adds `minio` (S3-compatible storage, console `:9001`), `redis` (queue), and `video-worker` (`Dockerfile.worker`). All hosts use Compose service names (`minio`, `redis`, `db`).
+
 ## Code Conventions
 
 - **TypeScript:** `nodenext` module resolution, `ES2023` target, `strictNullChecks` on, `noImplicitAny` off
