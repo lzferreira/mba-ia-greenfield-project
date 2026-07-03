@@ -23,8 +23,18 @@ See `docs/diagrams/software-arch.mermaid` for the full diagram. Key containers:
 - **Video Worker** (FFmpeg) → consumes jobs from queue, processes videos, updates DB and storage
 - **Database** (PostgreSQL) → users, channels, videos, comments, likes
 - **Object Storage** (S3/MinIO) → video files and thumbnails
-- **Message Queue** (TBD) → video processing job queue
+- **Message Queue** (BullMQ on Redis) → video processing job queue
 - **Email Service** (SMTP) → account confirmation and password recovery
+
+## Video Pipeline (Phase 03)
+
+Upload and processing of videos (up to 10 GB) is asynchronous and never streams file bytes through the API:
+
+- **Upload** — the client calls `POST /videos` to pre-register a **draft** and receives **presigned S3 multipart URLs**; the file parts are `PUT` **directly to MinIO**. `POST /videos/:id/complete` finalizes the multipart, enforces the 10 GiB cap against the real object size, moves the video to `processing`, and enqueues a `process-video` job on the `video-processing` BullMQ queue.
+- **Processing** — a **separate worker container** (`video-worker`, entry `src/worker.ts`) consumes the queue, runs `ffprobe`/`ffmpeg` to extract duration + metadata and generate a thumbnail, then updates the row to `ready` (or `failed` with a reason on error).
+- **Delivery** — `GET /videos/:publicId/stream` and `/download` redirect (302) to presigned GET URLs; MinIO serves HTTP Range / 206 Partial Content directly, so playback never requires a full download. Each video has an 11-char **public URL id**.
+- **Status cycle** — `draft → processing → ready | failed` (`uploading` is a reserved enum value).
+- **Infra** — `minio`, `redis`, and `video-worker` run in `nestjs-project/compose.yaml` alongside the API. Backend module: `nestjs-project/src/videos/`; storage adapter: `nestjs-project/src/storage/`. See `nestjs-project/CLAUDE.md` for endpoints and file-level detail.
 
 ## Docker Networking
 
